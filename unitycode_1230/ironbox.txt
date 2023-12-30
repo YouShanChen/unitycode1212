@@ -1,0 +1,131 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SocialPlatforms;
+
+public class ironbox : MonoBehaviour
+{
+    // Start is called before the first frame update
+    public static bool canenter;//可進入櫃子
+    public static bool animationplaying;//動畫播放中
+    public static float pAngle;//玩家旋轉角度
+    public static bool ishiding;//玩家藏進櫃子
+    private Vector3 Pos;//櫃子中心
+    private Vector3 pPos;//玩家位置
+    private Vector3 pcamePos;//玩家鏡頭位置
+    private Vector3 Posfront;//櫃子前
+    public Animator animator;//門動畫
+    public  CharacterController pController;//玩家控制器
+    public Transform pTransform;//玩家transform
+    public Transform pcameTransform;//鏡頭transform
+    private float offsetx;//x位移
+    private float offsetz;//z位移
+    private int count;//計數
+    private int phase = 0;//階段
+    
+    void Start()
+    {
+        canenter = false;
+        animationplaying = false;
+        ishiding = false;
+        Pos = transform.position;
+        Posfront = Pos-transform.forward*6f;//設定瞬移到櫃子前的點
+        pController = GameObject.Find("Player").GetComponent<CharacterController>();
+        pTransform = GameObject.Find("Player").transform;
+        pPos = GameObject.Find("Player").transform.position;
+        pcameTransform = GameObject.Find("Camera").transform;
+        pcamePos = GameObject.Find("Camera").transform.position;
+        animator = GameObject.Find("ironbox").GetComponent<Animator>();
+        animator.SetBool("isclose", true);//遊戲開始把門關上
+        phase = 0;
+        Pos.y = pcamePos.y;//與鏡頭高度一樣
+        Posfront.y = pcamePos.y;//與鏡頭高度一樣
+    }
+    // Update is called once per frame
+    void Update()
+    {
+        //檢測玩家是否在櫃子附近
+        pPos = GameObject.Find("Player").transform.position;
+        if (!canenter&&(Posfront.x + 3 > pPos.x && Posfront.x - 3 < pPos.x && Posfront.z + 3 > pPos.z && Posfront.z - 3 < pPos.z)&&phase==0)
+        {
+            Debug.Log("canenter");
+            canenter = true;
+        }
+        else if(canenter&&!((Posfront.x + 3 > pPos.x && Posfront.x - 3 < pPos.x && Posfront.z + 3 > pPos.z && Posfront.z - 3 < pPos.z))&&phase==0)
+        {
+            Debug.Log("cannotenter");
+            canenter = false;
+        }
+        //在櫃子附近按下e則門打開，固定玩家位置和視角
+        if (!animationplaying&&canenter&& Input.GetKeyDown("e")&&phase==0)
+        {
+            animationplaying = true;
+            offsetx = Posfront.x - pPos.x;
+            offsetz = Posfront.z - pPos.z;
+            pController.Move(new Vector3(offsetx, 0, offsetz));
+            pcameTransform.localRotation = Quaternion.Euler(0f, 0f, 0f);
+            pPos = GameObject.Find("Player").transform.position;
+            Vector3 v3 = Pos - pPos;
+            v3.x = v3.z = 0f;
+            pTransform.LookAt(Pos - v3);//看向櫃子
+            animator.SetBool("isclose", false);
+            Invoke("waitforseconds", 2.0f);
+        }
+        //玩家進去櫃子
+        if (phase == 1)
+        {
+            if ((Pos.z - pPos.z) * (Pos.z - pPos.z) > 0.5f)
+            {               
+                pController.Move(transform.forward * 12f * Time.deltaTime);
+            }
+            else if ((Pos.z-pPos.z)* (Pos.z - pPos.z)<0.5f)
+            {
+                phase++;
+                count = 0;
+            }
+        }
+        //玩家視角面對門並關上門
+        if (phase == 2)
+        {
+            if (count < 18)
+            {
+                pTransform.Rotate(0, 10, 0);
+                count++;
+            }
+            else
+            {
+                phase = 3;
+                animator.SetBool("isclose", true);
+                ishiding = true;
+                count = 0;
+            }
+        }
+        //玩家再次按下e，則門打開
+        if(phase == 3 && Input.GetKeyDown("e"))
+        {
+            animator.SetBool("isclose", false);
+            Invoke("waitforseconds", 2.0f);
+        }
+        //玩家走出門外，門自動關上
+        if (phase == 4)
+        {
+            pPos = GameObject.Find("Player").transform.position;
+            if ((Posfront.z - pPos.z) * (Posfront.z - pPos.z) > 0.5f)
+            {
+                pController.Move(-transform.forward * 12f * Time.deltaTime);
+            }  
+            else
+            {
+                animator.SetBool("isclose", true);
+                animationplaying = false;
+                ishiding = false;
+                phase = 0;
+            }
+        }
+    }
+    private void waitforseconds()//等待門動畫播放，播完後進下階段
+    {
+        phase++;
+    }
+
+}

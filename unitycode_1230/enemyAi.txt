@@ -1,0 +1,195 @@
+using UnityEngine.AI;
+using UnityEngine;
+using Unity.VisualScripting;
+
+public class enemyAi : MonoBehaviour{
+public GameObject player; //玩家單位
+public Vector3 patrolDestPoint; //遊走目標點
+public Transform m_transform; 
+public Animator m_animator;
+public NavMeshAgent m_agent;
+
+private Vector3 initialPosition; //原點
+public float wanderRadius=15; //遊走半徑
+public float defendRadius=30; //自衛半徑
+public float chaseRadius = 60; //追擊半徑
+public float attackRange = 0.5f; //攻擊距離
+private float distanceToPlayer; //與玩家距離
+private float distanceToInitial; //與原點距離
+private float timeBetweenAttack = 3; //攻擊間隔
+private float lastAttackTime;//最近一次攻擊時間
+private float hideTime;//躲藏時間
+private int power=30;//怪物攻擊力
+private bool is_Running = false; //是否奔跑
+private bool is_Attacking = false; //是否在攻擊
+private bool is_Counting = false; //是否在計時
+float m_walkSpeed = 1f; //走路速度
+float m_runSpeed = 1f; //奔跑速度
+
+
+private enum MonsterState //怪物狀態
+    {
+        WALK,
+        CHASE,
+        ATTACK,
+        RETURN
+    }
+private MonsterState currentState = MonsterState.WALK;
+private void OnDrawGizmosSelected()//畫出範圍
+    {
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, wanderRadius);
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, defendRadius);
+        Gizmos.color = Color.green;
+        Gizmos.DrawWireSphere(transform.position, chaseRadius);
+
+    }
+
+    void Start () {
+        player = GameObject.Find("Player");
+        m_animator = this.GetComponent<Animator>();
+        m_transform = this.transform;
+        m_agent= GetComponent<NavMeshAgent>();
+        initialPosition = this.GetComponent<Transform>().position;
+        wanderRadius = Mathf.Min(chaseRadius, wanderRadius);//遊走半徑不大於追擊半徑
+        patrolDestPoint = GetNewPatrolDestPoint();//產生新的遊走點
+    }
+ void Update()
+    {
+        switch (currentState)
+        {
+            case MonsterState.WALK://走路
+                if (is_Running)
+                {
+                    m_animator.SetBool("isrun", false);
+                    is_Running = false;
+                }
+                if (Vector3.Distance(patrolDestPoint, m_transform.position) <= m_agent.stoppingDistance)
+                {
+                    patrolDestPoint = GetNewPatrolDestPoint();
+                }
+                else
+                {
+                    m_agent.SetDestination(patrolDestPoint);
+                    WalkTo();
+                }
+                WanderRadiusCheck();
+                break;
+            case MonsterState.CHASE://追擊
+                if (!is_Running)
+                {
+                    m_animator.SetBool("isrun", true);
+                    is_Running = true;
+                }
+                if (is_Attacking)
+                {
+                    m_animator.SetBool("isAttacking", false);
+                    is_Attacking = false;
+                }
+                m_agent.SetDestination(player.transform.position);
+                RunTo();
+                ChaseRadiusCheck();
+                break;
+            case MonsterState.ATTACK://攻擊
+                lastAttackTime = Time.time;
+                if (!is_Attacking)
+                {
+                    m_animator.SetBool("isAttacking", true);
+                    is_Attacking = true;
+                }
+                m_agent.SetDestination(player.transform.position);
+                Debug.Log("Attack");
+                FindObjectOfType<PlayerHealth>().TakeDamage(power);
+                AttackCheck();
+                break;
+            case MonsterState.RETURN://返回原點
+                m_agent.SetDestination(initialPosition);
+                RunTo();
+                ReturnCheck();
+                break;
+        }
+    }
+
+    void WalkTo() //走路
+     {
+        m_agent.speed = m_walkSpeed;
+        float speed = m_walkSpeed * Time.deltaTime;
+         m_agent.Move(m_transform.TransformDirection(new Vector3(0, 0, speed)));
+     }
+    void RunTo() //奔跑
+    {
+        m_agent.speed = m_runSpeed;
+        float speed = m_runSpeed * Time.deltaTime;
+        m_agent.Move(m_transform.TransformDirection(new Vector3(0, 0, speed)));
+    }
+    Vector3 GetNewPatrolDestPoint() //生成新的遊走點
+    {
+        float offsetX = Random.Range(-wanderRadius, wanderRadius);
+        float offsetZ = Random.Range(-wanderRadius, wanderRadius);
+        Vector3 randomPoint = new Vector3(initialPosition.x + offsetX, transform.position.y, initialPosition.z + offsetZ);
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(randomPoint, out hit, wanderRadius, 1))
+            randomPoint = hit.position;
+        else
+            randomPoint = transform.position;
+        return randomPoint;
+    }
+    void WanderRadiusCheck() //遊走狀態檢測
+    {
+        distanceToPlayer = Vector3.Distance(player.transform.position, m_transform.position);
+        distanceToInitial = Vector3.Distance(m_transform.position, initialPosition);
+        is_Running = false;
+        m_animator.SetBool("isrun", false);
+        if (distanceToPlayer <defendRadius && !PlayerHealth.isDead)
+        {
+            currentState = MonsterState.CHASE;
+        }
+    }
+    void ChaseRadiusCheck() //追擊狀態檢測
+    {
+        distanceToPlayer = Vector3.Distance(player.transform.position, m_transform.position);
+        distanceToInitial = Vector3.Distance(m_transform.position, initialPosition);
+        is_Running = true;
+        m_animator.SetBool("isrun", true);
+        if (ironbox.ishiding && !(is_Counting))//若在櫃子裡且未計時則開始計時
+        {
+            hideTime = Time.time;
+            is_Counting = true;
+        }
+        if (ironbox.ishiding && Time.time - hideTime> 10.0f)//若在櫃子裡待超過十秒則怪物會返回原點
+        {
+            currentState = MonsterState.RETURN;
+            Debug.Log("you avoid monster");
+            hideTime = Time.time;
+        }
+        if (!ironbox.ishiding)//若在櫃子外則設為未計時
+        {
+            is_Counting = false;
+        }
+        if (distanceToInitial > chaseRadius|| PlayerHealth.isDead)//離開追擊範圍或玩家死亡則怪物會返回原點
+        {
+            currentState = MonsterState.RETURN;
+        }
+        else if (distanceToPlayer < 8.0f && Time.time - lastAttackTime > timeBetweenAttack&& !ironbox.ishiding)//玩家跟怪物在一定距離內且怪物攻擊冷卻結束，怪物發動攻擊
+        {
+            currentState = MonsterState.ATTACK;
+        }
+        
+    }
+    void AttackCheck()//攻擊狀態檢測
+    {
+        distanceToPlayer = Vector3.Distance(player.transform.position, m_transform.position);
+        currentState = MonsterState.CHASE;
+    }
+    void ReturnCheck() //返回狀態檢測
+    {
+        distanceToInitial = Vector3.Distance(m_transform.position, initialPosition);
+        if (distanceToInitial<3.0f)
+        {
+            is_Running = false;
+            m_animator.SetBool("isrun", false);
+            currentState = MonsterState.WALK;
+        }
+    }
+}
